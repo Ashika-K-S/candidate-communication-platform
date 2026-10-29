@@ -151,3 +151,13 @@ MAILERS = {
 # Communication Provider Configuration
 PROVIDER_BASE_URL = os.getenv("PROVIDER_BASE_URL", "http://127.0.0.1:8001")
 PROVIDER_TIMEOUT = float(os.getenv("PROVIDER_TIMEOUT", "10"))
+
+# CORS Configuration
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        os.getenv("FRONTEND_URL", "http://localhost:3000,http://127.0.0.1:3000"),
+    ).split(",")
+    if origin.strip()
+]
