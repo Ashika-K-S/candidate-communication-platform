@@ -147,3 +147,7 @@ MAILERS = {
         "BACKEND": "django.core.mail.backends.console.EmailBackend",
     },
 }
+
+# Communication Provider Configuration
+PROVIDER_BASE_URL = os.getenv("PROVIDER_BASE_URL", "http://127.0.0.1:8001")
+PROVIDER_TIMEOUT = float(os.getenv("PROVIDER_TIMEOUT", "10"))
