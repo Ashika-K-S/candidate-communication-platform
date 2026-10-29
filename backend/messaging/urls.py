@@ -5,6 +5,7 @@ from .views import (
     DeliveryStatusWebhookView,
     MessageViewSet,
     ProviderHealthView,
+    SimulateDeliveryEventView,
 )
 
 router = DefaultRouter()
@@ -27,6 +28,11 @@ urlpatterns = [
         "provider/health/",
         ProviderHealthView.as_view(),
         name="provider-health",
+    ),
+    path(
+        "provider/simulate-event/",
+        SimulateDeliveryEventView.as_view(),
+        name="provider-simulate-event",
     ),
     path(
         "candidates/<int:candidate_id>/messages/",

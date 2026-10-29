@@ -30,6 +30,8 @@ class MessagingAPITests(APITestCase):
         self.messages_list_url = reverse("message-list")
         self.events_url = reverse("delivery-status-events")
         self.provider_health_url = reverse("provider-health")
+        self.simulate_event_url = reverse("provider-simulate-event")
+        self.simulate_event_message_action_url = reverse("message-simulate-event")
 
     @patch("requests.post")
     def test_send_individual_message_success(self, mock_post):
@@ -723,3 +725,81 @@ class MessagingAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["status"], "unhealthy")
         self.assertIn("Connection Refused", response.data["error"])
+
+    # ==========================================
+    # STAGE 4 TESTS: SIMULATE WEBHOOK EVENT
+    # ==========================================
+
+    @patch("requests.post")
+    def test_simulate_delivery_event_success(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "simulated_event": {
+                "event_id": "evt_sim_123",
+                "status": "delivered",
+                "provider_message_id": "prov_msg_test123",
+            },
+            "backend_status_code": 200,
+            "backend_response": {
+                "status": "updated",
+                "new_status": "delivered",
+            },
+        }
+        mock_post.return_value = mock_resp
+
+        payload = {
+            "provider_message_id": "prov_msg_test123",
+            "status": "delivered",
+        }
+        response = self.client.post(self.simulate_event_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["backend_status_code"], 200)
+        self.assertEqual(response.data["simulated_event"]["status"], "delivered")
+
+    def test_simulate_delivery_event_missing_identifier(self):
+        payload = {
+            "status": "delivered",
+        }
+        response = self.client.post(self.simulate_event_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("non_field_errors", response.data)
+
+    @patch("requests.post", side_effect=requests.exceptions.ConnectionError)
+    def test_simulate_delivery_event_provider_unavailable(self, mock_post):
+        payload = {
+            "provider_message_id": "prov_msg_test123",
+            "status": "delivered",
+        }
+        response = self.client.post(self.simulate_event_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["error"], "provider_unavailable")
+
+    @patch("requests.post", side_effect=requests.exceptions.Timeout)
+    def test_simulate_delivery_event_provider_timeout(self, mock_post):
+        payload = {
+            "provider_message_id": "prov_msg_test123",
+            "status": "delivered",
+        }
+        response = self.client.post(self.simulate_event_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertEqual(response.data["error"], "provider_timeout")
+
+    @patch("requests.post")
+    def test_simulate_delivery_event_via_message_action(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "simulated_event": {"event_id": "evt_action_1"},
+            "backend_status_code": 200,
+        }
+        mock_post.return_value = mock_resp
+
+        payload = {
+            "message_id": 42,
+            "status": "read",
+        }
+        response = self.client.post(self.simulate_event_message_action_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+

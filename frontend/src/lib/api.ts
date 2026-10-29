@@ -189,4 +189,31 @@ export const providerApi = {
   health: async (): Promise<ProviderHealth> => {
     return request<ProviderHealth>("/provider/health/");
   },
+
+  simulateEvent: async (params: {
+    provider_message_id?: string;
+    message_id?: number;
+    status: "delivered" | "read" | "failed";
+    failure_reason?: string;
+    backend_url?: string;
+  }): Promise<{
+    simulated_event?: {
+      event_id: string;
+      status: string;
+      timestamp: string;
+      provider_message_id?: string;
+      message_id?: number;
+      failure_reason?: string;
+    };
+    backend_status_code?: number;
+    backend_response?: Record<string, unknown>;
+    error?: string;
+    message?: string;
+  }> => {
+    return request("/provider/simulate-event/", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+  },
 };
+

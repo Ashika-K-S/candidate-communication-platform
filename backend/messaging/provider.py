@@ -168,6 +168,66 @@ def check_provider_health() -> dict:
         }
 
 
+def simulate_provider_event(
+    provider_message_id: str = None,
+    message_id: int = None,
+    status: str = "delivered",
+    failure_reason: str = None,
+    backend_url: str = None,
+) -> tuple[bool, dict, int]:
+    """
+    Dispatches a webhook simulation request to the dummy provider service.
+    The dummy provider formats the event payload and posts it to Django's delivery webhook.
+    Returns: (is_success, response_dict, http_status_code)
+    """
+    base_url = getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    timeout = getattr(settings, "PROVIDER_TIMEOUT", 10.0)
+    url = f"{base_url}/api/simulate-event/"
+
+    payload = {
+        "status": status,
+    }
+    if provider_message_id:
+        payload["provider_message_id"] = provider_message_id
+    if message_id:
+        payload["message_id"] = message_id
+    if failure_reason:
+        payload["failure_reason"] = failure_reason
+    if backend_url:
+        payload["backend_url"] = backend_url
+
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=timeout,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            data = response.json()
+        except Exception:
+            data = {"message": response.text}
+
+        return (response.status_code == 200), data, response.status_code
+
+    except requests.exceptions.Timeout:
+        return False, {
+            "error": "provider_timeout",
+            "message": f"Simulation request timed out after {timeout} seconds.",
+        }, 504
+    except requests.exceptions.ConnectionError:
+        return False, {
+            "error": "provider_unavailable",
+            "message": f"Unable to connect to dummy provider service at {url}. Ensure the dummy provider is running on port 8001.",
+        }, 503
+    except requests.exceptions.RequestException as e:
+        return False, {
+            "error": "provider_request_error",
+            "message": f"Simulation error communicating with provider: {str(e)}",
+        }, 502
+
+
+
 def dispatch_candidate_message(candidate, content: str, provider_name: str = "dummy_provider") -> Message:
     """
     Persists a Message record and dispatches it to the dummy provider.

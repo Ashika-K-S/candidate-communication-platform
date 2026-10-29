@@ -11,6 +11,7 @@ from .provider import (
     classify_failure,
     dispatch_candidate_message,
     retry_failed_message,
+    simulate_provider_event,
 )
 from .serializers import (
     BulkSendMessageSerializer,
@@ -18,6 +19,7 @@ from .serializers import (
     MessageRetrySerializer,
     MessageSerializer,
     SendMessageSerializer,
+    SimulateDeliveryEventSerializer,
 )
 
 # Status ordering for normal lifecycle transitions
@@ -164,6 +166,15 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
         Endpoint: POST /api/messages/events/
         """
         return DeliveryStatusWebhookView().post(request)
+
+    @action(detail=False, methods=["post"], url_path="simulate-event")
+    def simulate_event(self, request):
+        """
+        Simulate a delivery event via the message router.
+        Endpoint: POST /api/messages/simulate-event/
+        """
+        return SimulateDeliveryEventView().post(request)
+
 
 
 class CandidateMessagesView(APIView):
@@ -370,3 +381,30 @@ class ProviderHealthView(APIView):
         health_info = check_provider_health()
         http_status = status.HTTP_200_OK if health_info.get("status") == "healthy" else status.HTTP_503_SERVICE_UNAVAILABLE
         return Response(health_info, status=http_status)
+
+
+class SimulateDeliveryEventView(APIView):
+    """
+    Triggers the dummy provider's delivery-status event simulation.
+    Browser calls Django on port 8000 -> Django contacts dummy provider on port 8001 ->
+    Dummy provider dispatches the webhook event to Django's /api/messages/events/ ->
+    Idempotency and status transitions are evaluated and recorded.
+    Endpoint: POST /api/provider/simulate-event/
+    """
+    def post(self, request):
+        serializer = SimulateDeliveryEventSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        backend_url = serializer.validated_data.get("backend_url")
+        if not backend_url:
+            backend_url = request.build_absolute_uri("/api/messages/events/")
+
+        success, data, http_status = simulate_provider_event(
+            provider_message_id=serializer.validated_data.get("provider_message_id"),
+            message_id=serializer.validated_data.get("message_id"),
+            status=serializer.validated_data.get("status", MessageStatus.DELIVERED),
+            failure_reason=serializer.validated_data.get("failure_reason"),
+            backend_url=backend_url,
+        )
+        return Response(data, status=http_status)
+

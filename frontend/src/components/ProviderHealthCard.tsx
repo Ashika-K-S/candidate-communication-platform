@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ProviderHealth } from "@/types";
+import { providerApi } from "@/lib/api";
 import { Activity, RefreshCw, Zap, ShieldCheck, AlertCircle, CheckCircle } from "lucide-react";
 
 interface ProviderHealthCardProps {
@@ -25,32 +26,29 @@ export function ProviderHealthCard({ health, loading, onRefresh }: ProviderHealt
     setSimResult(null);
 
     try {
-      const resp = await fetch("http://127.0.0.1:8001/api/simulate-event/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider_message_id: simProviderId.trim(),
-          status: simStatus,
-          failure_reason: simStatus === "failed" ? simReason.trim() || "Carrier rejected" : undefined,
-        }),
+      const data = await providerApi.simulateEvent({
+        provider_message_id: simProviderId.trim(),
+        status: simStatus,
+        failure_reason: simStatus === "failed" ? simReason.trim() || "Carrier rejected" : undefined,
       });
 
-      const data = await resp.json();
-      if (resp.ok && data.backend_status_code === 200) {
+      if (data.backend_status_code === 200 || (!data.backend_status_code && !data.error)) {
         setSimResult({
           success: true,
-          message: `Delivery event '${simStatus}' dispatched! Backend response: ${JSON.stringify(data.backend_response)}`,
+          message: `Delivery event '${simStatus}' dispatched through backend! Backend response: ${JSON.stringify(
+            data.backend_response || data
+          )}`,
         });
       } else {
         setSimResult({
           success: false,
-          message: `Simulation error: ${data.message || JSON.stringify(data)}`,
+          message: `Simulation error: ${data.message || JSON.stringify(data.backend_response || data)}`,
         });
       }
     } catch (err: unknown) {
       setSimResult({
         success: false,
-        message: `Failed to connect to dummy provider at http://127.0.0.1:8001: ${err instanceof Error ? err.message : "Error"}`,
+        message: err instanceof Error ? err.message : "Failed to simulate delivery event",
       });
     } finally {
       setSimLoading(false);

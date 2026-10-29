@@ -145,3 +145,22 @@ class DeliveryEventWebhookSerializer(serializers.Serializer):
 
 class MessageRetrySerializer(serializers.Serializer):
     force = serializers.BooleanField(default=False, required=False)
+
+
+class SimulateDeliveryEventSerializer(serializers.Serializer):
+    provider_message_id = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    message_id = serializers.IntegerField(required=False)
+    status = serializers.ChoiceField(
+        choices=[MessageStatus.DELIVERED, MessageStatus.READ, MessageStatus.FAILED],
+        default=MessageStatus.DELIVERED,
+    )
+    failure_reason = serializers.CharField(required=False, allow_blank=True, default=None)
+    backend_url = serializers.URLField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs.get("provider_message_id") and not attrs.get("message_id"):
+            raise serializers.ValidationError(
+                "Either 'provider_message_id' or 'message_id' must be provided to simulate an event."
+            )
+        return attrs
+

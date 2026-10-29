@@ -79,4 +79,60 @@ describe("Frontend API Client & Error Handling Suite", () => {
     assert.equal(calcRate(10, 10), 100);
     assert.equal(calcRate(3, 1), 33);
   });
+
+  it("validates webhook simulation payload requirements before dispatch", () => {
+    const validateSimulationPayload = (params) => {
+      if (!params.provider_message_id?.trim() && !params.message_id) {
+        throw new Error("Either 'provider_message_id' or 'message_id' is required.");
+      }
+      if (!["delivered", "read", "failed"].includes(params.status)) {
+        throw new Error("Invalid status for simulation event.");
+      }
+      return true;
+    };
+
+    assert.equal(
+      validateSimulationPayload({ provider_message_id: "prov_msg_123", status: "delivered" }),
+      true
+    );
+    assert.throws(
+      () => validateSimulationPayload({ status: "delivered" }),
+      /Either 'provider_message_id' or 'message_id' is required/
+    );
+    assert.throws(
+      () => validateSimulationPayload({ provider_message_id: "prov_msg_123", status: "unknown" }),
+      /Invalid status/
+    );
+  });
+
+  it("parses simulated webhook backend response into informative status feedback", () => {
+    const formatSimulationResult = (data) => {
+      if (data.backend_status_code === 200) {
+        return {
+          success: true,
+          message: `Delivery event '${data.simulated_event?.status}' dispatched through backend!`,
+        };
+      }
+      return {
+        success: false,
+        message: data.message || "Simulation error",
+      };
+    };
+
+    const successResult = formatSimulationResult({
+      backend_status_code: 200,
+      simulated_event: { status: "delivered", event_id: "evt_123" },
+      backend_response: { status: "updated", new_status: "delivered" },
+    });
+    assert.equal(successResult.success, true);
+    assert.match(successResult.message, /dispatched through backend/);
+
+    const errorResult = formatSimulationResult({
+      backend_status_code: 404,
+      message: "No message found",
+    });
+    assert.equal(errorResult.success, false);
+    assert.equal(errorResult.message, "No message found");
+  });
 });
+
