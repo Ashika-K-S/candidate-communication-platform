@@ -1,12 +1,45 @@
 from rest_framework import serializers
 from candidates.models import Candidate
-from .models import Message, MessageStatus
+from .models import DeliveryStatusEvent, Message, MessageRetryAttempt, MessageStatus
+
+
+class MessageRetryAttemptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MessageRetryAttempt
+        fields = [
+            "id",
+            "attempt_number",
+            "previous_status",
+            "previous_provider_message_id",
+            "new_provider_message_id",
+            "status",
+            "failure_reason",
+            "is_permanent_failure",
+            "forced",
+            "created_at",
+        ]
+
+
+class DeliveryStatusEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeliveryStatusEvent
+        fields = [
+            "id",
+            "event_id",
+            "status",
+            "provider_message_id",
+            "failure_reason",
+            "raw_payload",
+            "created_at",
+        ]
 
 
 class MessageSerializer(serializers.ModelSerializer):
     candidate_name = serializers.CharField(source="candidate.name", read_only=True)
     candidate_email = serializers.CharField(source="candidate.email", read_only=True)
     candidate_phone = serializers.CharField(source="candidate.phone", read_only=True)
+    retry_attempts = MessageRetryAttemptSerializer(many=True, read_only=True)
+    delivery_events = DeliveryStatusEventSerializer(many=True, read_only=True)
 
     class Meta:
         model = Message
@@ -21,6 +54,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "provider_message_id",
             "status",
             "failure_reason",
+            "is_permanent_failure",
+            "retry_count",
+            "retry_attempts",
+            "delivery_events",
             "created_at",
             "updated_at",
         ]
@@ -33,6 +70,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "provider_message_id",
             "status",
             "failure_reason",
+            "is_permanent_failure",
+            "retry_count",
+            "retry_attempts",
+            "delivery_events",
             "created_at",
             "updated_at",
         ]
@@ -71,7 +112,6 @@ class BulkSendMessageSerializer(serializers.Serializer):
     def validate_candidate_ids(self, value):
         if not value:
             raise serializers.ValidationError("candidate_ids list cannot be empty.")
-        # Deduplicate while preserving order
         seen = set()
         deduped = []
         for cid in value:
@@ -79,3 +119,29 @@ class BulkSendMessageSerializer(serializers.Serializer):
                 seen.add(cid)
                 deduped.append(cid)
         return deduped
+
+
+class DeliveryEventWebhookSerializer(serializers.Serializer):
+    event_id = serializers.CharField(required=True, max_length=120)
+    provider_message_id = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    message_id = serializers.IntegerField(required=False)
+    status = serializers.ChoiceField(choices=MessageStatus.choices, required=True)
+    failure_reason = serializers.CharField(required=False, allow_blank=True, default=None)
+    timestamp = serializers.CharField(required=False, allow_blank=True, default=None)
+
+    def validate_event_id(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("event_id cannot be blank.")
+        return cleaned
+
+    def validate(self, attrs):
+        if not attrs.get("provider_message_id") and not attrs.get("message_id"):
+            raise serializers.ValidationError(
+                "Either 'provider_message_id' or 'message_id' must be provided to identify the message."
+            )
+        return attrs
+
+
+class MessageRetrySerializer(serializers.Serializer):
+    force = serializers.BooleanField(default=False, required=False)
