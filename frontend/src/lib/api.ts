@@ -6,9 +6,55 @@ import {
   ProviderHealth,
 } from "@/types";
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api"
-).replace(/\/+$/, "");
+/**
+ * Resolves and normalizes the backend API base URL:
+ * - Checks NEXT_PUBLIC_API_URL first, then NEXT_PUBLIC_API_BASE_URL, then API_URL (fallback for SSR/Node),
+ *   defaulting to "http://127.0.0.1:8000/api" for local development.
+ * - Trims whitespace and trailing slashes.
+ * - Prevents duplicate /api/api paths.
+ * - Guarantees that the base URL ends with "/api".
+ */
+export function resolveApiBaseUrl(rawEnv?: string): string {
+  const envUrl =
+    rawEnv ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.API_URL ||
+    "http://127.0.0.1:8000/api";
+
+  let cleaned = envUrl.trim().replace(/\/+$/, "");
+
+  // Prevent duplicate /api/api if configured like https://domain.com/api/api
+  cleaned = cleaned.replace(/(\/api)+$/i, "/api");
+
+  // Ensure base URL ends with /api
+  if (!cleaned.toLowerCase().endsWith("/api")) {
+    cleaned = `${cleaned}/api`;
+  }
+
+  return cleaned;
+}
+
+/**
+ * Builds a request URL ensuring no duplicate /api/api/ paths.
+ */
+export function buildRequestUrl(endpoint: string, baseUrl: string = API_BASE_URL): string {
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+
+  // Ensure leading slash
+  let cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+
+  // Prevent duplicate /api if endpoint also starts with /api (e.g. "/api/candidates/" when base is ".../api")
+  if (cleanEndpoint.toLowerCase().startsWith("/api/")) {
+    cleanEndpoint = cleanEndpoint.slice(4);
+  } else if (cleanEndpoint.toLowerCase() === "/api") {
+    cleanEndpoint = "/";
+  }
+
+  return `${normalizedBase}${cleanEndpoint}`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export class ApiError extends Error {
   status: number;
@@ -30,7 +76,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  const url = buildRequestUrl(endpoint, API_BASE_URL);
   
   const headers = new Headers(options.headers || {});
   if (!headers.has("Content-Type") && options.body) {

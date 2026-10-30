@@ -2,10 +2,126 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 describe("Frontend API Client & Error Handling Suite", () => {
+  // Helper logic mirroring resolveApiBaseUrl and buildRequestUrl in frontend/src/lib/api.ts
+  const resolveApiBaseUrl = (rawEnv, envSources = {}) => {
+    const envUrl =
+      rawEnv ||
+      envSources.NEXT_PUBLIC_API_URL ||
+      envSources.NEXT_PUBLIC_API_BASE_URL ||
+      envSources.API_URL ||
+      "http://127.0.0.1:8000/api";
+
+    let cleaned = envUrl.trim().replace(/\/+$/, "");
+    cleaned = cleaned.replace(/(\/api)+$/i, "/api");
+    if (!cleaned.toLowerCase().endsWith("/api")) {
+      cleaned = `${cleaned}/api`;
+    }
+    return cleaned;
+  };
+
+  const buildRequestUrl = (endpoint, baseUrl) => {
+    const normalizedBase = baseUrl.replace(/\/+$/, "");
+    let cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    if (cleanEndpoint.toLowerCase().startsWith("/api/")) {
+      cleanEndpoint = cleanEndpoint.slice(4);
+    } else if (cleanEndpoint.toLowerCase() === "/api") {
+      cleanEndpoint = "/";
+    }
+    return `${normalizedBase}${cleanEndpoint}`;
+  };
+
   it("formats API base URL correctly by trimming trailing slashes", () => {
     const raw = "http://127.0.0.1:8000/api///";
-    const cleaned = raw.replace(/\/+$/, "");
+    const cleaned = resolveApiBaseUrl(raw);
     assert.equal(cleaned, "http://127.0.0.1:8000/api");
+  });
+
+  it("normalizes base URL missing /api suffix to include /api", () => {
+    assert.equal(
+      resolveApiBaseUrl("https://talentreach-backend.onrender.com"),
+      "https://talentreach-backend.onrender.com/api"
+    );
+    assert.equal(
+      resolveApiBaseUrl("https://talentreach-backend.onrender.com/"),
+      "https://talentreach-backend.onrender.com/api"
+    );
+  });
+
+  it("preserves base URL that already includes /api without doubling", () => {
+    assert.equal(
+      resolveApiBaseUrl("https://talentreach-backend.onrender.com/api"),
+      "https://talentreach-backend.onrender.com/api"
+    );
+    assert.equal(
+      resolveApiBaseUrl("https://talentreach-backend.onrender.com/api/"),
+      "https://talentreach-backend.onrender.com/api"
+    );
+  });
+
+  it("cleans accidental duplicate /api/api from base URL environment variable", () => {
+    assert.equal(
+      resolveApiBaseUrl("https://talentreach-backend.onrender.com/api/api/"),
+      "https://talentreach-backend.onrender.com/api"
+    );
+  });
+
+  it("prevents duplicate /api/api in request URLs when endpoint contains /api", () => {
+    const base = "https://talentreach-backend.onrender.com/api";
+    // Standard endpoint without /api prefix
+    assert.equal(
+      buildRequestUrl("/candidates/", base),
+      "https://talentreach-backend.onrender.com/api/candidates/"
+    );
+    // Endpoint accidentally prefixed with /api/
+    assert.equal(
+      buildRequestUrl("/api/candidates/", base),
+      "https://talentreach-backend.onrender.com/api/candidates/"
+    );
+    // Endpoint without leading slash
+    assert.equal(
+      buildRequestUrl("candidates/", base),
+      "https://talentreach-backend.onrender.com/api/candidates/"
+    );
+    // Provider health endpoint
+    assert.equal(
+      buildRequestUrl("/api/provider/health/", base),
+      "https://talentreach-backend.onrender.com/api/provider/health/"
+    );
+  });
+
+  it("resolves environment variable priority: NEXT_PUBLIC_API_URL > NEXT_PUBLIC_API_BASE_URL > API_URL > default", () => {
+    // When NEXT_PUBLIC_API_URL is set
+    assert.equal(
+      resolveApiBaseUrl(undefined, {
+        NEXT_PUBLIC_API_URL: "https://talentreach-backend.onrender.com/api",
+        NEXT_PUBLIC_API_BASE_URL: "http://other-url.com/api",
+        API_URL: "http://legacy.com/api",
+      }),
+      "https://talentreach-backend.onrender.com/api"
+    );
+
+    // When NEXT_PUBLIC_API_BASE_URL is set (legacy fallback)
+    assert.equal(
+      resolveApiBaseUrl(undefined, {
+        NEXT_PUBLIC_API_BASE_URL: "https://talentreach-backend.onrender.com/api",
+        API_URL: "http://legacy.com/api",
+      }),
+      "https://talentreach-backend.onrender.com/api"
+    );
+
+    // When only API_URL is set (from Vercel build environment)
+    assert.equal(
+      resolveApiBaseUrl(undefined, {
+        API_URL: "https://talentreach-backend.onrender.com/api",
+      }),
+      "https://talentreach-backend.onrender.com/api"
+    );
+
+    // When no environment variables are set, defaults to localhost:8000/api
+    assert.equal(
+      resolveApiBaseUrl(undefined, {}),
+      "http://127.0.0.1:8000/api"
+    );
   });
 
   it("handles DRF validation error objects into human-readable messages", () => {

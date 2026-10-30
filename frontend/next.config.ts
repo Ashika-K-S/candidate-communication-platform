@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+const configuredApiUrl =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL;
+
 const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
@@ -12,6 +17,13 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  ...(configuredApiUrl
+    ? {
+        env: {
+          NEXT_PUBLIC_API_URL: configuredApiUrl,
+        },
+      }
+    : {}),
 };
 
 export default nextConfig;
