@@ -1,200 +1,371 @@
-# Candidate Communication Platform
+# TalentReach — Candidate Communication Platform
 
-A reliable, scalable recruitment communication platform that enables recruiters to manage candidates, send individual and bulk messages, track message delivery lifecycles, handle delivery status webhooks idempotently, and safely retry failed communications.
+A full-stack recruitment communication platform that enables recruiters to manage candidates, send individual and bulk messages, monitor delivery statuses, handle communication failures, and maintain candidate communication histories.
 
-## Tech Stack
-- **Backend**: Python 3.14, Django 6.1, Django REST Framework
-- **Database**: PostgreSQL
-- **Communication Provider**: Standalone HTTP REST dummy provider service (zero third-party dependencies)
-- **Frontend** *(Upcoming)*: Next.js, TypeScript, Tailwind CSS
+## Live Demo
 
----
+* **Frontend:** https://talentreach.vercel.app
+* **Backend API:** https://talentreach-backend.onrender.com
+* **GitHub Repository:** https://github.com/Ashika-K-S/candidate-communication-platform
 
-## Architecture Overview
+> Note: The backend is hosted on Render. Initial requests may take longer if the service has been inactive.
 
+## Overview
+
+TalentReach is designed to simplify candidate communication throughout the recruitment process. Recruiters can manage candidate records, send messages individually or in bulk, and monitor message delivery through a centralized dashboard.
+
+The application uses a separate dummy communication provider to simulate communication delivery and provider failures without requiring a paid third-party messaging service.
+
+## Features
+
+### Candidate Management
+
+* Create and manage candidate records.
+* View the candidate list.
+* Search for candidates.
+* View individual candidate details.
+
+### Individual Messaging
+
+* Send messages to individual candidates.
+* Track message status.
+* Maintain communication records.
+
+### Bulk Messaging
+
+* Send a common message to multiple selected candidates.
+* Process each candidate's message independently.
+* Track individual outcomes for bulk messages.
+* Report successful and failed message attempts.
+
+### Message Tracking
+
+* Monitor message delivery statuses.
+* View message records and candidate communication history.
+* Record delivery status events.
+* Prevent duplicate status events from incorrectly changing message state.
+
+### Failure Handling and Retry
+
+* Handle communication provider errors.
+* Distinguish between temporary and permanent failures where supported.
+* Retry eligible failed messages.
+* Record retry attempts for auditing.
+
+### Provider Health Monitoring
+
+* Display communication provider availability.
+* Check connectivity with the provider service.
+* Report provider health and response latency.
+
+### Dashboard
+
+* View total candidates and messages.
+* Monitor delivered and failed message counts.
+* Check communication provider status.
+* Access individual messaging and bulk campaign workflows.
+
+## Technology Stack
+
+| Layer                   | Technologies                          |
+| ----------------------- | ------------------------------------- |
+| Frontend                | Next.js, React, TypeScript            |
+| Styling                 | Tailwind CSS                          |
+| Backend                 | Python, Django, Django REST Framework |
+| Database                | PostgreSQL                            |
+| Communication           | Standalone HTTP REST dummy provider   |
+| Frontend Hosting        | Vercel                                |
+| Backend Hosting         | Render                                |
+| Version Control         | Git and GitHub                        |
+| Development Environment | Visual Studio Code                    |
+
+## Architecture
+
+The application separates the frontend, backend, database, and communication provider into distinct components.
+
+```text
+                 Recruiter
+                     |
+                     v
+          Next.js Frontend
+             (Vercel)
+                     |
+                REST API
+                     |
+                     v
+           Django REST API
+              (Render)
+               /       \
+              v         v
+      PostgreSQL     Dummy Provider
+       Database      HTTP Service
+                         |
+                         v
+                Simulated Delivery
+                  Status Events
+                         |
+                         v
+                 Django Backend
+                         |
+                         v
+                Updated Message Status
 ```
-+-----------------------------------+       HTTP REST        +-----------------------------------+
-|         Django Backend            | ---------------------> |      Dummy Provider Service       |
-|       (127.0.0.1:8000)            |                        |         (127.0.0.1:8001)          |
-|                                   | <--------------------- |                                   |
-| - Candidate CRUD & Search         |   Delivery Webhooks    | - Simulates carrier delivery      |
-| - Message State Machine           |                        | - Simulates temp/perm failures    |
-| - Idempotency & Deduplication     |                        | - Simulates latency & timeouts    |
-| - Row-locked Retry Engine         |                        | - Standalone ThreadingHTTPServer  |
-+-----------------------------------+                        +-----------------------------------+
-                  |
-                  | Database ORM
-                  v
-+-----------------------------------+
-|       PostgreSQL Database         |
-|      (candidate_platform)         |
-|                                   |
-| - candidates_candidate            |
-| - messaging_message               |
-| - messaging_deliverystatusevent   |
-| - messaging_messageretryattempt   |
-+-----------------------------------+
+
+### Component Responsibilities
+
+**Frontend**
+
+* Provides the recruiter dashboard and messaging interface.
+* Displays candidate records, message counts, provider status, and delivery outcomes.
+* Communicates with the backend through REST APIs.
+
+**Backend**
+
+* Handles candidate management and messaging operations.
+* Coordinates communication with the provider.
+* Maintains message records and delivery statuses.
+* Processes delivery events and retry requests.
+
+**Database**
+
+* Stores candidate information, messages, delivery status events, and retry records.
+
+**Dummy Communication Provider**
+
+* Operates as a separate HTTP service.
+* Simulates message submission and delivery behavior.
+* Supports testing of successful and failed communication scenarios.
+* Allows provider-related failure handling to be tested without depending on a paid messaging provider.
+
+## API Overview
+
+The backend exposes REST endpoints for candidate management, messaging, delivery events, retries, and provider health monitoring.
+
+### Candidate Management
+
+| Method      | Endpoint                | Description                |
+| ----------- | ----------------------- | -------------------------- |
+| GET         | `/api/candidates/`      | List and search candidates |
+| POST        | `/api/candidates/`      | Create a candidate         |
+| GET         | `/api/candidates/<id>/` | Retrieve candidate details |
+| PUT / PATCH | `/api/candidates/<id>/` | Update a candidate         |
+| DELETE      | `/api/candidates/<id>/` | Delete a candidate         |
+
+### Messaging
+
+| Method | Endpoint                         | Description                                  |
+| ------ | -------------------------------- | -------------------------------------------- |
+| POST   | `/api/messages/send/`            | Send an individual message                   |
+| POST   | `/api/messages/bulk-send/`       | Send messages to multiple candidates         |
+| GET    | `/api/messages/`                 | List messages                                |
+| GET    | `/api/messages/<id>/`            | Retrieve message details                     |
+| GET    | `/api/candidates/<id>/messages/` | Retrieve a candidate's communication history |
+| POST   | `/api/messages/<id>/retry/`      | Retry an eligible failed message             |
+
+### Delivery Events and Provider Health
+
+| Method | Endpoint                         | Description                          |
+| ------ | -------------------------------- | ------------------------------------ |
+| POST   | `/api/messages/events/`          | Process message status events        |
+| POST   | `/api/webhooks/delivery-status/` | Delivery status webhook endpoint     |
+| GET    | `/api/provider/health/`          | Check provider health                |
+| GET    | `/api/messages/provider-health/` | Alternative provider health endpoint |
+
+All endpoints use the deployed backend base URL in production.
+
+## Local Setup
+
+### Prerequisites
+
+Install the following before running the project:
+
+* Python compatible with the backend dependencies
+* Node.js and npm
+* PostgreSQL
+* Git
+* Visual Studio Code
+
+### 1. Clone the Repository
+
+Open the terminal in Visual Studio Code and run:
+
+```bash
+git clone https://github.com/Ashika-K-S/candidate-communication-platform.git
+cd candidate-communication-platform
 ```
 
----
+### 2. Configure PostgreSQL
 
-## Getting Started
+Start PostgreSQL and create a database named `candidate_platform`.
 
-### 1. Database Setup (PostgreSQL)
-Ensure PostgreSQL is running locally on port `5432` and create the `candidate_platform` database:
 ```sql
 CREATE DATABASE candidate_platform;
 ```
 
-### 2. Backend Setup
-1. Configure environment variables:
-   Copy `.env.example` to `backend/.env` and update credentials:
-   ```bash
-   cp backend/.env.example backend/.env
-   ```
-2. Apply Django migrations:
-   ```bash
-   backend\.venv\Scripts\python backend\manage.py migrate
-   ```
-3. Start the Django backend development server:
-   ```bash
-   backend\.venv\Scripts\python backend\manage.py runserver 127.0.0.1:8000
-   ```
+### 3. Configure the Backend
 
-### 3. Dummy Provider Setup
-Run the standalone dummy communication provider:
+Open a terminal in the project root.
+
+Create a Python virtual environment:
+
+```bash
+python -m venv backend/.venv
+```
+
+Activate it in Windows PowerShell:
+
+```powershell
+.\backend\.venv\Scripts\Activate.ps1
+```
+
+Install the backend dependencies:
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+Create a local backend environment file by copying the example:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+```
+
+Update `backend/.env` with your local database credentials and development settings.
+
+The configuration includes:
+
+* Django secret key and debug settings
+* Allowed hosts
+* PostgreSQL connection settings
+* Communication provider URL and timeout
+* Frontend URL for CORS configuration
+
+Keep secret keys and database passwords private. Do not commit `.env` files.
+
+### 4. Run Database Migrations
+
+From the project root:
+
+```bash
+python backend/manage.py migrate
+```
+
+Run the Django system check:
+
+```bash
+python backend/manage.py check
+```
+
+### 5. Start the Backend
+
+```bash
+python backend/manage.py runserver 127.0.0.1:8000
+```
+
+The backend API will be available at:
+
+`http://127.0.0.1:8000`
+
+### 6. Start the Dummy Provider
+
+Open a second terminal in Visual Studio Code and run:
+
 ```bash
 python dummy-provider/server.py 127.0.0.1 8001
 ```
 
----
+The backend should be configured to use:
 
-## API Documentation
+`http://127.0.0.1:8001`
 
-### 1. Candidate Management
+Keep the provider running while testing messaging functionality locally.
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/candidates/` | List candidates with optional search (`?search=Jane` or `?q=Jane`) |
-| `POST` | `/api/candidates/` | Create a new candidate |
-| `GET` | `/api/candidates/<id>/` | Retrieve candidate details |
-| `PUT` / `PATCH` | `/api/candidates/<id>/` | Update candidate details |
-| `DELETE` | `/api/candidates/<id>/` | Delete candidate |
+### 7. Configure and Start the Frontend
 
-#### Create Candidate Example:
+Open a third terminal:
+
 ```bash
-curl -X POST http://127.0.0.1:8000/api/candidates/ \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Jane Doe", "email": "jane@example.com", "phone": "+15551234567"}'
+cd frontend
+npm install
 ```
 
----
+Create `frontend/.env.local` using `frontend/.env.example` as a reference.
 
-### 2. Messaging & Communication History
+For local development, configure the frontend to use the local backend API:
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/messages/send/` | Send message to a single candidate |
-| `POST` | `/api/messages/bulk-send/` | Send message to multiple candidates independently |
-| `GET` | `/api/candidates/<id>/messages/` | Candidate communication history (supports `?status=`) |
-| `GET` | `/api/messages/` | List all messages (supports `?candidate=<id>`, `?status=`, `?search=`) |
-| `GET` | `/api/messages/<id>/` | Retrieve message details including audit logs |
-
-#### Individual Send Example:
-```bash
-curl -X POST http://127.0.0.1:8000/api/messages/send/ \
-  -H "Content-Type: application/json" \
-  -d '{"candidate_id": 1, "content": "Hi Jane, your interview is confirmed."}'
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
 ```
 
-#### Bulk Send Example:
+Start the frontend:
+
 ```bash
-curl -X POST http://127.0.0.1:8000/api/messages/bulk-send/ \
-  -H "Content-Type: application/json" \
-  -d '{"candidate_ids": [1, 2, 3], "content": "Company recruitment update."}'
-```
-*Returns summary counts (`total`, `successful`, `failed`) and isolated per-candidate outcomes.*
-
----
-
-### 3. Delivery Status Updates & Webhook Ingestion
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/messages/events/` | Ingest delivery status events from provider |
-| `POST` | `/api/webhooks/delivery-status/` | Alias webhook endpoint |
-
-#### Status Precedence & Transition Rules:
-Messages follow an enforced state machine:
-`pending` &rarr; `sent` &rarr; `delivered` &rarr; `read`
-
-- **Idempotency**: Every event must supply an `event_id`. Duplicate events are safely ignored (`duplicate_ignored`) without mutating message state.
-- **Out-of-Order Rejection**: Stale events cannot move a message backward (e.g., an event for `sent` arriving after a message is already `delivered` or `read` is recorded in the audit log but does not revert the status).
-- **Terminal States**: `read` is a terminal state. A confirmed `read` message cannot transition to `failed` or move backward.
-
-#### Webhook Payload Example:
-```bash
-curl -X POST http://127.0.0.1:8000/api/messages/events/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event_id": "evt_998877",
-    "provider_message_id": "prov_msg_12345",
-    "status": "delivered"
-  }'
+npm run dev
 ```
 
----
+Open:
 
-### 4. Failed Message Retry
+`http://localhost:3000`
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/messages/<id>/retry/` | Safely retry an eligible failed message |
-
-#### Retry Rules & Protections:
-- **Eligibility**: Only messages currently in `failed` status can be retried. Messages that are `pending`, `sent`, `delivered`, or `read` return `400 Bad Request (ineligible_status)`.
-- **Concurrency Safety**: Retries execute inside a database transaction using `select_for_update()` row locking to prevent race conditions and duplicate dispatches.
-- **Permanent vs. Temporary Failures**:
-  - Temporary failures (e.g., network timeout, carrier congestion) can be retried immediately.
-  - Permanent failures (e.g., invalid phone number, blocked recipient) are rejected by default. To retry a permanent failure, the client must explicitly provide `"force": true`.
-- **Auditing**: Every retry generates an auditable `MessageRetryAttempt` log entry tracking attempt numbers, previous/new provider IDs, and outcomes.
-
-#### Retry Example:
-```bash
-# Standard retry for temporary failure:
-curl -X POST http://127.0.0.1:8000/api/messages/15/retry/
-
-# Forced retry for permanent failure override:
-curl -X POST http://127.0.0.1:8000/api/messages/15/retry/ \
-  -H "Content-Type: application/json" \
-  -d '{"force": true}'
-```
-
----
-
-### 5. Provider Health Check
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/provider/health/` | Checks connectivity and latency to dummy provider |
-| `GET` | `/api/messages/provider-health/` | Router alias endpoint |
-
-#### Example:
-```bash
-curl -X GET http://127.0.0.1:8000/api/provider/health/
-```
-*Returns `200 OK` with latency and status when healthy, or `503 Service Unavailable` when the provider is unreachable or times out.*
-
----
+For production, the frontend must use the deployed backend URL rather than the local development URL.
 
 ## Testing
 
-Run the full automated test suite (58 unit and integration tests):
+### Backend Tests
+
+From the project root, activate the backend virtual environment and run:
+
 ```bash
-backend\.venv\Scripts\python backend\manage.py test candidates messaging
+python backend/manage.py test candidates messaging
 ```
 
-Run Django system check:
+### Frontend Tests
+
+From the frontend directory:
+
 ```bash
-backend\.venv\Scripts\python backend\manage.py check
+npm test
 ```
+
+### Frontend Linting
+
+```bash
+npm run lint
+```
+
+### Production Build
+
+```bash
+npm run build
+```
+
+## Deployment
+
+The application is deployed using separate frontend and backend hosting services.
+
+### Frontend — Vercel
+
+The Next.js frontend is deployed on Vercel and communicates with the production backend API.
+
+### Backend — Render
+
+The Django REST API is deployed on Render and connects to the configured PostgreSQL database.
+
+### Communication Provider
+
+The dummy provider simulates communication behavior for development and testing. It is not a real WhatsApp, SMS, or email delivery service.
+
+## Important Notes
+
+* The dummy provider is intended for testing communication workflows.
+* Real-world messaging requires integration with an appropriate external provider.
+* Environment variables must be configured separately for local development and production.
+* Provider availability depends on the provider process being reachable.
+* Delivery statuses in the dummy-provider environment represent simulated delivery behavior.
+
+## Author
+
+**Ashika K S**
+
+GitHub: https://github.com/Ashika-K-S
