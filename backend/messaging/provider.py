@@ -44,7 +44,7 @@ def send_to_dummy_provider(recipient: str, content: str) -> dict:
     Sends an outbound message to the external dummy provider service via HTTP REST.
     Handles network errors, timeouts, and provider error codes gracefully.
     """
-    base_url = getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    base_url = str(getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001")).strip().rstrip("/")
     timeout = getattr(settings, "PROVIDER_TIMEOUT", 10.0)
     url = f"{base_url}/api/send/"
 
@@ -130,7 +130,7 @@ def send_to_dummy_provider(recipient: str, content: str) -> dict:
         return {
             "success": False,
             "status": MessageStatus.FAILED,
-            "failure_reason": f"Unable to connect to dummy provider service at {url}.",
+            "failure_reason": f"Unable to connect to communication provider at {url}.",
             "is_permanent": False,
         }
     except requests.exceptions.RequestException as e:
@@ -148,7 +148,7 @@ def check_provider_health() -> dict:
     Pings the dummy provider health check endpoint over HTTP.
     Returns a structured health report including latency without exposing secrets.
     """
-    base_url = getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    base_url = str(getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001")).strip().rstrip("/")
     timeout = 3.0  # Quick timeout for health checks
     url = f"{base_url}/health"
 
@@ -208,7 +208,7 @@ def simulate_provider_event(
     The dummy provider formats the event payload and posts it to Django's delivery webhook.
     Returns: (is_success, response_dict, http_status_code)
     """
-    base_url = getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    base_url = str(getattr(settings, "PROVIDER_BASE_URL", "http://127.0.0.1:8001")).strip().rstrip("/")
     timeout = getattr(settings, "PROVIDER_TIMEOUT", 10.0)
     url = f"{base_url}/api/simulate-event/"
 
@@ -246,7 +246,7 @@ def simulate_provider_event(
     except requests.exceptions.ConnectionError:
         return False, {
             "error": "provider_unavailable",
-            "message": f"Unable to connect to dummy provider service at {url}. Ensure the dummy provider is running on port 8001.",
+            "message": f"Unable to connect to communication provider at {url}. Ensure the provider service is running and accessible.",
         }, 503
     except requests.exceptions.RequestException as e:
         return False, {

@@ -1004,4 +1004,74 @@ class MessagingAPITests(APITestCase):
         response = self.client.post(url, {"content": "   "}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    # ----------------------------------------------------
+    # Provider URL Configuration & Unavailable Handling Tests
+    # ----------------------------------------------------
+
+    @patch("requests.get")
+    def test_provider_base_url_custom_environment_configuration(self, mock_get):
+        """Verify custom PROVIDER_BASE_URL with trailing slash is properly stripped and queried."""
+        from django.test import override_settings
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"status": "ok", "service": "dummy-provider"}
+        mock_get.return_value = mock_resp
+
+        custom_url = "https://custom-provider.onrender.com/"
+        with override_settings(PROVIDER_BASE_URL=custom_url):
+            response = self.client.get(self.provider_health_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["status"], "healthy")
+            # Verify exact call URL without double slashes
+            mock_get.assert_called_once()
+            called_url = mock_get.call_args[0][0]
+            self.assertEqual(called_url, "https://custom-provider.onrender.com/health")
+
+    @patch("requests.post", side_effect=requests.exceptions.ConnectionError)
+    def test_send_individual_message_provider_unavailable_returns_safe_failure(self, mock_post):
+        """Verify API does not crash (no 500) when provider is offline; message is marked failed and retryable."""
+        payload = {
+            "candidate_id": self.candidate1.id,
+            "content": "Message when provider is down",
+        }
+        response = self.client.post(self.send_url, payload, format="json")
+        # DRF endpoint returns 200 with the failed message (status 201 only on successful dispatch)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], MessageStatus.FAILED)
+        self.assertFalse(response.data["is_permanent_failure"])
+        self.assertIn("Unable to connect to communication provider", response.data["failure_reason"])
+
+        # Message is persisted in DB with failed status and is retryable
+        msg = Message.objects.get(id=response.data["id"])
+        self.assertEqual(msg.status, MessageStatus.FAILED)
+        self.assertFalse(msg.is_permanent_failure)
+
+    @patch("requests.post", side_effect=requests.exceptions.ConnectionError)
+    def test_bulk_send_message_provider_unavailable_returns_safe_failure(self, mock_post):
+        """Verify bulk send returns HTTP 200 with campaign_status 'failed' when provider is offline."""
+        payload = {
+            "candidate_ids": [self.candidate1.id, self.candidate2.id],
+            "content": "Bulk message when provider is down",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["successful"], 0)
+        self.assertEqual(response.data["failed"], 2)
+        self.assertEqual(response.data["campaign_status"], "failed")
+        for res in response.data["results"]:
+            self.assertEqual(res["status"], MessageStatus.FAILED)
+            self.assertFalse(res["is_permanent_failure"])
+
+    @patch("requests.get", side_effect=requests.exceptions.ConnectionError)
+    def test_provider_health_endpoint_unavailable_returns_503_not_500(self, mock_get):
+        """Verify health check returns HTTP 503 instead of 500 when provider is unreachable."""
+        response = self.client.get(self.provider_health_url)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["status"], "unhealthy")
+        self.assertEqual(response.data["provider"], "dummy-provider")
+        self.assertIn("error", response.data)
+
+
 

@@ -172,8 +172,11 @@ MAILERS = {
 }
 
 # Communication Provider Configuration
-PROVIDER_BASE_URL = os.getenv("PROVIDER_BASE_URL", "http://127.0.0.1:8001")
+PROVIDER_BASE_URL = os.getenv("PROVIDER_BASE_URL", "http://127.0.0.1:8001").strip().rstrip("/")
 PROVIDER_TIMEOUT = float(os.getenv("PROVIDER_TIMEOUT", "10"))
+
+# Reverse proxy SSL header for Render
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = [
