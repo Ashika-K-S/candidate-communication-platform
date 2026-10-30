@@ -179,14 +179,49 @@ PROVIDER_TIMEOUT = float(os.getenv("PROVIDER_TIMEOUT", "10"))
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # CORS Configuration
-CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        os.getenv("FRONTEND_URL", "http://localhost:3000,http://127.0.0.1:3000"),
-    ).split(",")
-    if origin.strip()
+# Production frontend and local development origins
+default_cors_origins = [
+    "https://talentreach.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
+
+env_cors = os.getenv("CORS_ALLOWED_ORIGINS") or os.getenv("FRONTEND_URL")
+configured_cors = [
+    origin.strip().rstrip("/")
+    for origin in env_cors.split(",")
+    if origin.strip()
+] if env_cors else []
+
+# Deduplicate while ensuring production frontend and local dev origins are always present
+CORS_ALLOWED_ORIGINS = []
+for origin in default_cors_origins + configured_cors:
+    cleaned_origin = origin.strip().rstrip("/")
+    if cleaned_origin and cleaned_origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(cleaned_origin)
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["Content-Type", "X-CSRFToken"]
+
+# CSRF Configuration
+default_csrf_trusted = [
+    "https://talentreach.vercel.app",
+    "https://talentreach-backend.onrender.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+env_csrf = os.getenv("CSRF_TRUSTED_ORIGINS")
+configured_csrf = [
+    origin.strip().rstrip("/")
+    for origin in env_csrf.split(",")
+    if origin.strip()
+] if env_csrf else []
+
+CSRF_TRUSTED_ORIGINS = []
+for origin in default_csrf_trusted + configured_csrf:
+    cleaned_origin = origin.strip().rstrip("/")
+    if cleaned_origin and cleaned_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(cleaned_origin)
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {

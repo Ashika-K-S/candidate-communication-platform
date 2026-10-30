@@ -6,23 +6,45 @@ import {
   ProviderHealth,
 } from "@/types";
 
+export const PRODUCTION_API_URL = "https://talentreach-backend.onrender.com/api";
+export const LOCAL_DEV_API_URL = "http://127.0.0.1:8000/api";
+
 /**
  * Resolves and normalizes the backend API base URL:
- * - Checks NEXT_PUBLIC_API_URL first, then NEXT_PUBLIC_API_BASE_URL, then API_URL (fallback for SSR/Node),
- *   defaulting to "http://127.0.0.1:8000/api" for local development.
+ * - Prioritizes NEXT_PUBLIC_API_URL, followed by NEXT_PUBLIC_API_BASE_URL, then API_URL.
+ * - In production (NODE_ENV === "production"), resolves to PRODUCTION_API_URL and NEVER falls back to localhost.
+ * - In development, falls back to LOCAL_DEV_API_URL.
  * - Trims whitespace and trailing slashes.
  * - Prevents duplicate /api/api paths.
  * - Guarantees that the base URL ends with "/api".
  */
-export function resolveApiBaseUrl(rawEnv?: string): string {
-  const envUrl =
-    rawEnv ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.API_URL ||
-    "http://127.0.0.1:8000/api";
+export function resolveApiBaseUrl(
+  rawEnv?: string,
+  isProd: boolean = process.env.NODE_ENV === "production"
+): string {
+  // If rawEnv is explicitly passed, use it; otherwise read environment variables
+  let candidate =
+    rawEnv !== undefined && rawEnv !== null && rawEnv.trim() !== ""
+      ? rawEnv.trim()
+      : (
+          process.env.NEXT_PUBLIC_API_URL ||
+          process.env.NEXT_PUBLIC_API_BASE_URL ||
+          process.env.API_URL ||
+          ""
+        ).trim();
 
-  let cleaned = envUrl.trim().replace(/\/+$/, "");
+  // In production, never permit localhost / 127.0.0.1
+  if (isProd) {
+    if (!candidate || candidate.includes("127.0.0.1") || candidate.includes("localhost")) {
+      candidate = PRODUCTION_API_URL;
+    }
+  } else {
+    if (!candidate) {
+      candidate = LOCAL_DEV_API_URL;
+    }
+  }
+
+  let cleaned = candidate.trim().replace(/\/+$/, "");
 
   // Prevent duplicate /api/api if configured like https://domain.com/api/api
   cleaned = cleaned.replace(/(\/api)+$/i, "/api");
@@ -39,7 +61,7 @@ export function resolveApiBaseUrl(rawEnv?: string): string {
  * Builds a request URL ensuring no duplicate /api/api/ paths.
  */
 export function buildRequestUrl(endpoint: string, baseUrl: string = API_BASE_URL): string {
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const normalizedBase = baseUrl.trim().replace(/\/+$/, "");
 
   // Ensure leading slash
   let cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;

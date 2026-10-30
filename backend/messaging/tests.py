@@ -1074,4 +1074,58 @@ class MessagingAPITests(APITestCase):
         self.assertIn("error", response.data)
 
 
+class CorsConfigurationTestCase(APITestCase):
+    """
+    Focused test suite verifying CORS headers:
+    - Allowed origins (production frontend https://talentreach.vercel.app and localhost)
+    - Rejection of unauthorized origins
+    - Preflight OPTIONS responses
+    - Preservation of CORS headers on HTTP error responses (404, 503)
+    """
+
+    def setUp(self):
+        self.allowed_origin = "https://talentreach.vercel.app"
+        self.unauthorized_origin = "https://unauthorized-domain.com"
+
+    def test_cors_allowed_for_production_frontend(self):
+        response = self.client.get("/api/candidates/", HTTP_ORIGIN=self.allowed_origin)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get("Access-Control-Allow-Origin"), self.allowed_origin)
+
+    def test_cors_allowed_for_local_development_origins(self):
+        for origin in ["http://localhost:3000", "http://127.0.0.1:3000"]:
+            response = self.client.get("/api/candidates/", HTTP_ORIGIN=origin)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.get("Access-Control-Allow-Origin"), origin)
+
+    def test_cors_preflight_options_for_production_frontend(self):
+        response = self.client.options(
+            "/api/candidates/",
+            HTTP_ORIGIN=self.allowed_origin,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.get("Access-Control-Allow-Origin"), self.allowed_origin)
+        self.assertIsNotNone(response.get("Access-Control-Allow-Methods"))
+        self.assertIn("POST", response.get("Access-Control-Allow-Methods"))
+
+    def test_cors_rejected_for_unauthorized_origin(self):
+        response = self.client.get("/api/candidates/", HTTP_ORIGIN=self.unauthorized_origin)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.get("Access-Control-Allow-Origin"))
+
+    def test_cors_headers_present_on_404_error_response(self):
+        response = self.client.get("/api/nonexistent-endpoint/", HTTP_ORIGIN=self.allowed_origin)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.get("Access-Control-Allow-Origin"), self.allowed_origin)
+
+    @patch("requests.get", side_effect=requests.exceptions.ConnectionError)
+    def test_cors_headers_present_on_503_provider_unavailable_response(self, mock_get):
+        response = self.client.get("/api/provider/health/", HTTP_ORIGIN=self.allowed_origin)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.get("Access-Control-Allow-Origin"), self.allowed_origin)
+
+
+
 

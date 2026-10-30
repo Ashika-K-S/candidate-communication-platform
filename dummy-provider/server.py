@@ -193,12 +193,19 @@ class DummyProviderHandler(BaseHTTPRequestHandler):
 
 
 def run(host=None, port=None):
-    # Support Render dynamic PORT environment variable and 0.0.0.0 host binding
-    env_port = os.getenv("PORT") or os.getenv("DUMMY_PROVIDER_PORT")
+    # Support explicit DUMMY_PROVIDER_PORT or Render dynamic PORT
+    env_port = os.getenv("DUMMY_PROVIDER_PORT") or os.getenv("PORT")
     port = int(port or env_port or 8001)
 
-    default_host = "0.0.0.0" if (os.getenv("RENDER") or os.getenv("PORT")) else "127.0.0.1"
-    host = host or os.getenv("DUMMY_PROVIDER_HOST", default_host)
+    env_host = os.getenv("DUMMY_PROVIDER_HOST")
+    if env_host:
+        default_host = env_host
+    elif os.getenv("RENDER") or os.getenv("PORT"):
+        default_host = "0.0.0.0"
+    else:
+        default_host = "127.0.0.1"
+
+    host = host or default_host
 
     server_address = (host, port)
     httpd = ThreadingHTTPServer(server_address, DummyProviderHandler)
