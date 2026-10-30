@@ -25,6 +25,8 @@ export function BulkCampaignModal({
   const [campaignResult, setCampaignResult] = useState<BulkSendResponse | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
 
+  const [formErrors, setFormErrors] = useState<{ recipients?: string; content?: string }>({});
+
   if (!isOpen) return null;
 
   const filteredCandidates = candidates.filter(
@@ -45,17 +47,46 @@ export function BulkCampaignModal({
     } else {
       const newIds = new Set([...selectedIds, ...filteredCandidates.map((c) => c.id)]);
       setSelectedIds(Array.from(newIds));
+      if (formErrors.recipients) setFormErrors((prev) => ({ ...prev, recipients: "" }));
     }
   };
 
   const handleToggleCandidate = (id: number) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
+      if (next.length > 0 && formErrors.recipients) {
+        setFormErrors((errs) => ({ ...errs, recipients: "" }));
+      }
+      return next;
+    });
+  };
+
+  const validate = (): boolean => {
+    const errs: { recipients?: string; content?: string } = {};
+
+    if (selectedIds.length === 0) {
+      errs.recipients = "At least one candidate must be selected.";
+    }
+
+    const trimmed = content.trim();
+    if (!trimmed) {
+      errs.content = "Message cannot be empty.";
+    } else if (trimmed.length > 1600) {
+      errs.content = "Message exceeds the allowed length (maximum 1600 characters).";
+    }
+
+    setFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleProceedToConfirm = () => {
+    if (validate()) {
+      setIsConfirming(true);
+    }
   };
 
   const handleStartSending = async () => {
-    if (selectedIds.length === 0 || !content.trim()) return;
+    if (!validate() || isSending) return;
 
     setIsSending(true);
     setApiError(null);
@@ -78,6 +109,7 @@ export function BulkCampaignModal({
     setIsConfirming(false);
     setSelectedIds([]);
     setContent("");
+    setFormErrors({});
     onClose();
   };
 
@@ -97,6 +129,7 @@ export function BulkCampaignModal({
           </div>
           <button
             onClick={handleReset}
+            aria-label="Close dialog"
             className="rounded-lg p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
           >
             <X className="h-5 w-5" />
@@ -115,6 +148,27 @@ export function BulkCampaignModal({
           {/* Results Screen */}
           {campaignResult ? (
             <div className="space-y-4">
+              <div
+                className={`p-4 rounded-xl border text-xs ${
+                  campaignResult.successful === 0 && campaignResult.total > 0
+                    ? "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300"
+                    : campaignResult.failed > 0
+                    ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300"
+                    : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300"
+                }`}
+              >
+                <p className="font-semibold text-sm">
+                  {campaignResult.successful === 0 && campaignResult.total > 0
+                    ? "Campaign Failed: All recipient messages failed to dispatch."
+                    : campaignResult.failed > 0
+                    ? "Campaign Partially Completed with Errors"
+                    : "Campaign Dispatched Successfully!"}
+                </p>
+                <p className="mt-0.5 text-xs">
+                  {campaignResult.successful} sent successfully, {campaignResult.failed} failed out of {campaignResult.total} recipient(s).
+                </p>
+              </div>
+
               <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/40 p-4">
                 <h4 className="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Campaign Summary</h4>
                 <div className="grid grid-cols-3 gap-3 text-center">
@@ -229,6 +283,9 @@ export function BulkCampaignModal({
                     )}
                   </button>
                 </div>
+                {formErrors.recipients && (
+                  <p className="text-xs text-rose-500 font-medium">{formErrors.recipients}</p>
+                )}
 
                 <input
                   type="text"
@@ -271,22 +328,37 @@ export function BulkCampaignModal({
               </div>
 
               {/* Message Content */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-300 mb-1.5">
+                <label
+                  htmlFor="bulk-campaign-message"
+                  className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-300 mb-1.5"
+                >
                   Campaign Message *
                 </label>
                 <textarea
+                  id="bulk-campaign-message"
                   rows={4}
                   placeholder="Enter the broadcast message to send to all selected candidates..."
                   value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  onChange={(e) => {
+                    setContent(e.target.value);
+                    if (formErrors.content) setFormErrors((prev) => ({ ...prev, content: "" }));
+                  }}
+                  aria-invalid={!!formErrors.content}
+                  className={`w-full rounded-xl border bg-white dark:bg-zinc-950 p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 resize-none ${
+                    formErrors.content
+                      ? "border-rose-500 focus:ring-rose-500"
+                      : "border-zinc-300 dark:border-zinc-700 focus:ring-indigo-500"
+                  }`}
                 />
+                {formErrors.content && (
+                  <p className="mt-1 text-xs text-rose-500">{formErrors.content}</p>
+                )}
                 <div className="mt-1 flex justify-between text-xs text-zinc-500">
                   <span>Selected: {selectedIds.length} candidate{selectedIds.length !== 1 ? "s" : ""}</span>
-                  <span>{content.length} characters</span>
+                  <span className={content.length > 1600 ? "text-rose-500 font-semibold" : ""}>
+                    {content.length}/1600 characters
+                  </span>
                 </div>
-              </div>
             </div>
           )}
         </div>
@@ -341,7 +413,7 @@ export function BulkCampaignModal({
               </button>
               <button
                 type="button"
-                onClick={() => setIsConfirming(true)}
+                onClick={handleProceedToConfirm}
                 disabled={selectedIds.length === 0 || !content.trim()}
                 className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 text-sm font-medium transition disabled:opacity-50 flex items-center gap-2 shadow-sm"
               >

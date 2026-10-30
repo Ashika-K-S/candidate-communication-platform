@@ -48,11 +48,21 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
 
         candidate_id = self.request.query_params.get("candidate") or self.request.query_params.get("candidate_id")
         if candidate_id:
-            queryset = queryset.filter(candidate_id=candidate_id)
+            try:
+                cid = int(candidate_id)
+                if cid <= 0:
+                    return queryset.none()
+                queryset = queryset.filter(candidate_id=cid)
+            except (ValueError, TypeError):
+                return queryset.none()
 
         status_param = self.request.query_params.get("status")
         if status_param:
-            queryset = queryset.filter(status__iexact=status_param.strip())
+            clean_status = status_param.strip().lower()
+            if clean_status in MessageStatus.values:
+                queryset = queryset.filter(status=clean_status)
+            else:
+                return queryset.none()
 
         return queryset
 
@@ -99,6 +109,19 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
                     "status": MessageStatus.FAILED,
                     "provider_message_id": None,
                     "failure_reason": f"Candidate with id {cid} not found.",
+                    "is_permanent_failure": True,
+                })
+                continue
+
+            if not candidate.phone or not candidate.phone.strip():
+                results.append({
+                    "candidate_id": cid,
+                    "candidate_name": candidate.name,
+                    "message_id": None,
+                    "status": MessageStatus.FAILED,
+                    "provider_message_id": None,
+                    "failure_reason": "Candidate does not have a valid phone number.",
+                    "is_permanent_failure": True,
                 })
                 continue
 
@@ -126,11 +149,13 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
 
         successful_count = sum(1 for r in results if r["status"] == MessageStatus.SENT)
         failed_count = sum(1 for r in results if r["status"] == MessageStatus.FAILED)
+        campaign_status = "succeeded" if failed_count == 0 else ("failed" if successful_count == 0 else "partial")
 
         response_data = {
             "total": len(results),
             "successful": successful_count,
             "failed": failed_count,
+            "campaign_status": campaign_status,
             "results": results,
         }
         return Response(response_data, status=status.HTTP_200_OK)
@@ -142,11 +167,18 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
         Endpoint: POST /api/messages/<id>/retry/
         Payload: {"force": false} (optional, required if permanent failure)
         """
+        try:
+            msg_id = int(pk)
+            if msg_id <= 0:
+                return Response({"detail": f"Invalid message id: {pk}"}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, TypeError):
+            return Response({"detail": f"Invalid message id: {pk}"}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = MessageRetrySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         force = serializer.validated_data.get("force", False)
 
-        success, data, http_status = retry_failed_message(message_id=pk, force=force)
+        success, data, http_status = retry_failed_message(message_id=msg_id, force=force)
         return Response(data, status=http_status)
 
     @action(detail=False, methods=["get"], url_path="provider-health")
@@ -194,28 +226,31 @@ class CandidateMessagesView(APIView):
 
         status_param = request.query_params.get("status")
         if status_param:
-            messages = messages.filter(status__iexact=status_param.strip())
+            clean_status = status_param.strip().lower()
+            if clean_status in MessageStatus.values:
+                messages = messages.filter(status=clean_status)
+            else:
+                return Response(
+                    {"detail": f"Invalid status filter: {status_param}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         serializer = MessageSerializer(messages, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, candidate_id):
-        try:
-            candidate = Candidate.objects.get(id=candidate_id)
-        except Candidate.DoesNotExist:
+        if not Candidate.objects.filter(id=candidate_id).exists():
             return Response(
                 {"detail": f"Candidate with id {candidate_id} not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        content = request.data.get("content", "").strip()
-        if not content:
-            return Response(
-                {"content": ["Message content cannot be blank."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        raw_content = request.data.get("content") if isinstance(request.data, dict) else None
+        serializer = SendMessageSerializer(data={"candidate_id": candidate_id, "content": raw_content})
+        serializer.is_valid(raise_exception=True)
 
-        message = dispatch_candidate_message(candidate=candidate, content=content)
+        candidate = Candidate.objects.get(id=candidate_id)
+        message = dispatch_candidate_message(candidate=candidate, content=serializer.validated_data["content"])
         response_status = status.HTTP_201_CREATED if message.status == MessageStatus.SENT else status.HTTP_200_OK
         return Response(MessageSerializer(message).data, status=response_status)
 
@@ -266,6 +301,8 @@ class DeliveryStatusWebhookView(APIView):
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            except Message.MultipleObjectsReturned:
+                message = Message.objects.select_for_update().filter(lookup_query).order_by("-created_at").first()
 
             current_status = message.status
 

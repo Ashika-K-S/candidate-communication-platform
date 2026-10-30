@@ -20,7 +20,7 @@ class CandidateViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         query = self.request.query_params.get("q")
         if query:
-            clean_query = query.strip()
+            clean_query = query.strip()[:100]
             if clean_query:
                 queryset = queryset.filter(
                     Q(name__icontains=clean_query)

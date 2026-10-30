@@ -80,38 +80,50 @@ class MessageSerializer(serializers.ModelSerializer):
 
 
 class SendMessageSerializer(serializers.Serializer):
-    candidate_id = serializers.IntegerField(required=True)
-    content = serializers.CharField(required=True, allow_blank=False)
+    candidate_id = serializers.IntegerField(required=True, min_value=1)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=1600)
 
     def validate_content(self, value):
         cleaned = value.strip()
         if not cleaned:
-            raise serializers.ValidationError("Message content cannot be blank.")
+            raise serializers.ValidationError("Message cannot be empty.")
+        if len(cleaned) > 1600:
+            raise serializers.ValidationError("Message exceeds the allowed length (maximum 1600 characters).")
         return cleaned
 
     def validate_candidate_id(self, value):
-        if not Candidate.objects.filter(id=value).exists():
+        try:
+            candidate = Candidate.objects.get(id=value)
+        except Candidate.DoesNotExist:
             raise serializers.ValidationError(f"Candidate with id {value} does not exist.")
+
+        if not candidate.phone or not candidate.phone.strip():
+            raise serializers.ValidationError("This candidate does not have a valid phone number.")
         return value
 
 
 class BulkSendMessageSerializer(serializers.Serializer):
     candidate_ids = serializers.ListField(
-        child=serializers.IntegerField(),
+        child=serializers.IntegerField(min_value=1),
         allow_empty=False,
         required=True,
+        max_length=500,
     )
-    content = serializers.CharField(required=True, allow_blank=False)
+    content = serializers.CharField(required=True, allow_blank=False, max_length=1600)
 
     def validate_content(self, value):
         cleaned = value.strip()
         if not cleaned:
-            raise serializers.ValidationError("Message content cannot be blank.")
+            raise serializers.ValidationError("Message cannot be empty.")
+        if len(cleaned) > 1600:
+            raise serializers.ValidationError("Message exceeds the allowed length (maximum 1600 characters).")
         return cleaned
 
     def validate_candidate_ids(self, value):
         if not value:
-            raise serializers.ValidationError("candidate_ids list cannot be empty.")
+            raise serializers.ValidationError("At least one candidate must be selected.")
+        if len(value) > 500:
+            raise serializers.ValidationError("Cannot send to more than 500 recipients in a single bulk campaign.")
         seen = set()
         deduped = []
         for cid in value:
@@ -123,9 +135,17 @@ class BulkSendMessageSerializer(serializers.Serializer):
 
 class DeliveryEventWebhookSerializer(serializers.Serializer):
     event_id = serializers.CharField(required=True, max_length=120)
-    provider_message_id = serializers.CharField(required=False, allow_blank=True, max_length=100)
-    message_id = serializers.IntegerField(required=False)
-    status = serializers.ChoiceField(choices=MessageStatus.choices, required=True)
+    provider_message_id = serializers.CharField(required=False, allow_blank=True, max_length=100, default=None)
+    message_id = serializers.IntegerField(required=False, min_value=1, default=None)
+    status = serializers.ChoiceField(
+        choices=[
+            (MessageStatus.SENT, "Sent"),
+            (MessageStatus.DELIVERED, "Delivered"),
+            (MessageStatus.READ, "Read"),
+            (MessageStatus.FAILED, "Failed"),
+        ],
+        required=True,
+    )
     failure_reason = serializers.CharField(required=False, allow_blank=True, default=None)
     timestamp = serializers.CharField(required=False, allow_blank=True, default=None)
 
@@ -135,8 +155,16 @@ class DeliveryEventWebhookSerializer(serializers.Serializer):
             raise serializers.ValidationError("event_id cannot be blank.")
         return cleaned
 
+    def validate_provider_message_id(self, value):
+        if value is not None:
+            cleaned = str(value).strip()
+            return cleaned or None
+        return None
+
     def validate(self, attrs):
-        if not attrs.get("provider_message_id") and not attrs.get("message_id"):
+        p_id = attrs.get("provider_message_id")
+        m_id = attrs.get("message_id")
+        if not p_id and not m_id:
             raise serializers.ValidationError(
                 "Either 'provider_message_id' or 'message_id' must be provided to identify the message."
             )
@@ -148,19 +176,28 @@ class MessageRetrySerializer(serializers.Serializer):
 
 
 class SimulateDeliveryEventSerializer(serializers.Serializer):
-    provider_message_id = serializers.CharField(required=False, allow_blank=True, max_length=100)
-    message_id = serializers.IntegerField(required=False)
+    provider_message_id = serializers.CharField(required=False, allow_blank=True, max_length=100, default=None)
+    message_id = serializers.IntegerField(required=False, min_value=1, default=None)
     status = serializers.ChoiceField(
         choices=[MessageStatus.DELIVERED, MessageStatus.READ, MessageStatus.FAILED],
         default=MessageStatus.DELIVERED,
     )
     failure_reason = serializers.CharField(required=False, allow_blank=True, default=None)
-    backend_url = serializers.URLField(required=False, allow_blank=True)
+    backend_url = serializers.URLField(required=False, allow_blank=True, default=None)
+
+    def validate_provider_message_id(self, value):
+        if value is not None:
+            cleaned = str(value).strip()
+            return cleaned or None
+        return None
 
     def validate(self, attrs):
-        if not attrs.get("provider_message_id") and not attrs.get("message_id"):
+        p_id = attrs.get("provider_message_id")
+        m_id = attrs.get("message_id")
+        if not p_id and not m_id:
             raise serializers.ValidationError(
                 "Either 'provider_message_id' or 'message_id' must be provided to simulate an event."
             )
         return attrs
+
 

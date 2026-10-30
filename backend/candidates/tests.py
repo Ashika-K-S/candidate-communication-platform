@@ -181,3 +181,142 @@ class CandidateAPITests(APITestCase):
         response = self.client.get(self.list_create_url, {"search": "NonExistentPerson"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 0)
+
+    def test_create_candidate_name_with_numbers_rejected(self):
+        payload = {
+            "name": "John Doe 123",
+            "email": "johndoe123@example.com",
+            "phone": "+919876543211",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+    def test_create_candidate_name_symbols_only_rejected(self):
+        payload = {
+            "name": "---@@@---",
+            "email": "symbolsonly@example.com",
+            "phone": "+919876543212",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+    def test_create_candidate_name_too_short(self):
+        payload = {
+            "name": "J",
+            "email": "tooshort@example.com",
+            "phone": "+919876543213",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+    def test_create_candidate_name_too_long(self):
+        payload = {
+            "name": "A" * 151,
+            "email": "toolong@example.com",
+            "phone": "+919876543214",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+    def test_create_candidate_valid_unicode_names(self):
+        payload = {
+            "name": "Renée Müller",
+            "email": "renee@example.com",
+            "phone": "+919876543215",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Renée Müller")
+
+        # Hyphenated and apostrophe names
+        payload2 = {
+            "name": "Mary-Jane O'Connor",
+            "email": "maryjane@example.com",
+            "phone": "+919876543216",
+        }
+        response2 = self.client.post(self.list_create_url, payload2, format="json")
+        self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response2.data["name"], "Mary-Jane O'Connor")
+
+    def test_create_candidate_phone_fewer_than_10_digits(self):
+        payload = {
+            "name": "Short Phone",
+            "email": "shortphone@example.com",
+            "phone": "+123456789",  # 9 digits
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+
+    def test_create_candidate_phone_too_many_digits(self):
+        payload = {
+            "name": "Long Phone",
+            "email": "longphone@example.com",
+            "phone": "+1234567890123456",  # 16 digits
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+
+    def test_create_candidate_phone_with_letters_rejected(self):
+        payload = {
+            "name": "Alpha Phone",
+            "email": "alphaphone@example.com",
+            "phone": "9876543210abc",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+
+    def test_create_candidate_phone_with_invalid_symbols_rejected(self):
+        payload = {
+            "name": "Symbol Phone",
+            "email": "symbolphone@example.com",
+            "phone": "+91 98765-43210#*!",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+
+    def test_create_candidate_indian_number_normalized(self):
+        # 10 digits without prefix normalized to +919876543210
+        payload = {
+            "name": "Indian Candidate",
+            "email": "indian@example.com",
+            "phone": "9123456780",
+        }
+        response = self.client.post(self.list_create_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["phone"], "+919123456780")
+
+    def test_create_candidate_malformed_emails_rejected(self):
+        for bad_email in ["abc", "abc@", "abc.com", "@example.com", "user@.com"]:
+            payload = {
+                "name": "Bad Email Candidate",
+                "email": bad_email,
+                "phone": "+919876543218",
+            }
+            response = self.client.post(self.list_create_url, payload, format="json")
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_400_BAD_REQUEST,
+                f"Email '{bad_email}' should have been rejected",
+            )
+            self.assertIn("email", response.data)
+
+    def test_update_candidate_invalid_phone(self):
+        detail_url = reverse("candidate-detail", kwargs={"pk": self.candidate1.pk})
+        response = self.client.patch(detail_url, {"phone": "invalid-phone"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+
+    def test_update_candidate_duplicate_phone(self):
+        detail_url = reverse("candidate-detail", kwargs={"pk": self.candidate1.pk})
+        response = self.client.patch(detail_url, {"phone": self.candidate2.phone}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", response.data)
+

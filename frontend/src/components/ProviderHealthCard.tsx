@@ -20,7 +20,10 @@ export function ProviderHealthCard({ health, loading, onRefresh }: ProviderHealt
 
   const handleSimulateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!simProviderId.trim()) return;
+    if (!simProviderId.trim()) {
+      setSimResult({ success: false, message: "Provider Message ID is required to simulate a delivery event." });
+      return;
+    }
 
     setSimLoading(true);
     setSimResult(null);

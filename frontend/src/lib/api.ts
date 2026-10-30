@@ -13,12 +13,19 @@ const API_BASE_URL = (
 export class ApiError extends Error {
   status: number;
   data: Record<string, unknown> | null;
+  fieldErrors: Record<string, string>;
 
-  constructor(message: string, status: number, data: Record<string, unknown> | null = null) {
+  constructor(
+    message: string,
+    status: number,
+    data: Record<string, unknown> | null = null,
+    fieldErrors: Record<string, string> = {}
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.data = data;
+    this.fieldErrors = fieldErrors;
   }
 }
 
@@ -71,6 +78,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     const dataObj = typeof responseData === "object" && responseData !== null
       ? (responseData as Record<string, unknown>)
       : null;
+    const extractedFieldErrors: Record<string, string> = {};
 
     if (dataObj) {
       if (typeof dataObj.detail === "string") {
@@ -79,21 +87,27 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         friendlyMessage = dataObj.message;
       } else if (typeof dataObj.error === "string") {
         friendlyMessage = dataObj.error;
-      } else {
-        // Collect field validation errors: {"email": ["This field must be unique."], ...}
-        const fieldErrors = Object.entries(dataObj)
-          .map(([key, val]) => {
-            if (Array.isArray(val)) return `${key}: ${val.join(" ")}`;
-            return `${key}: ${String(val)}`;
-          })
-          .join(" | ");
-        if (fieldErrors) friendlyMessage = fieldErrors;
+      }
+
+      // Collect field validation errors: {"email": ["This field must be unique."], ...}
+      for (const [key, val] of Object.entries(dataObj)) {
+        if (key !== "detail" && key !== "message" && key !== "error") {
+          extractedFieldErrors[key] = Array.isArray(val) ? val.join(" ") : String(val);
+        }
+      }
+
+      const formattedFieldErrors = Object.entries(extractedFieldErrors)
+        .map(([key, val]) => `${key}: ${val}`)
+        .join(" | ");
+
+      if (formattedFieldErrors && friendlyMessage.startsWith("Request failed with status")) {
+        friendlyMessage = formattedFieldErrors;
       }
     } else if (typeof responseData === "string" && responseData.trim()) {
       friendlyMessage = responseData;
     }
 
-    throw new ApiError(friendlyMessage, response.status, dataObj);
+    throw new ApiError(friendlyMessage, response.status, dataObj, extractedFieldErrors);
   }
 
   return responseData as T;

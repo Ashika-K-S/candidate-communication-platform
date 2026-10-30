@@ -41,6 +41,8 @@ export function DirectMessageModal({
   const [candidateHistory, setCandidateHistory] = useState<Message[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const [errors, setErrors] = useState<{ candidate?: string; content?: string }>({});
+
   useEffect(() => {
     if (preselectedCandidate) {
       setSelectedCandidateId(preselectedCandidate.id);
@@ -78,14 +80,39 @@ export function DirectMessageModal({
   const charCount = content.length;
   const smsSegments = Math.ceil(charCount / 160) || 1;
 
+  const validate = (): boolean => {
+    const newErrors: { candidate?: string; content?: string } = {};
+
+    if (!selectedCandidateId) {
+      newErrors.candidate = "Please select a candidate.";
+    } else if (!currentCandidate) {
+      newErrors.candidate = "Selected candidate does not exist.";
+    } else if (!currentCandidate.phone || !currentCandidate.phone.trim()) {
+      newErrors.candidate = "This candidate does not have a valid phone number.";
+    }
+
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+      newErrors.content = "Message cannot be empty.";
+    } else if (trimmedContent.length > 1600) {
+      newErrors.content = "Message exceeds the allowed length (maximum 1600 characters).";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleApplyTemplate = (tplText: string) => {
     const candidateName = currentCandidate ? currentCandidate.name.split(" ")[0] : "Candidate";
     setContent(tplText.replace("{name}", candidateName));
+    if (errors.content) setErrors((prev) => ({ ...prev, content: "" }));
   };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCandidateId || !content.trim() || isSending) return;
+    if (isSending) return;
+
+    if (!validate()) return;
 
     setIsSending(true);
     setSendResult(null);
@@ -105,6 +132,7 @@ export function DirectMessageModal({
       setCandidateHistory((prev) => [msg, ...prev]);
       onMessageSent(msg);
       setContent("");
+      setErrors({});
     } catch (err: unknown) {
       setSendResult({
         success: false,
@@ -131,6 +159,7 @@ export function DirectMessageModal({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="rounded-lg p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
           >
             <X className="h-5 w-5" />
@@ -141,14 +170,27 @@ export function DirectMessageModal({
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           {/* Candidate Selector */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-300 mb-1.5">
-              Recipient Candidate
+            <label
+              htmlFor="recipient-candidate-select"
+              className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-300 mb-1.5"
+            >
+              Recipient Candidate *
             </label>
             <select
+              id="recipient-candidate-select"
               value={selectedCandidateId}
-              onChange={(e) => setSelectedCandidateId(Number(e.target.value))}
+              onChange={(e) => {
+                setSelectedCandidateId(Number(e.target.value));
+                if (errors.candidate) setErrors((prev) => ({ ...prev, candidate: "" }));
+              }}
               disabled={isSending}
-              className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              aria-invalid={!!errors.candidate}
+              aria-describedby={errors.candidate ? "candidate-error" : undefined}
+              className={`w-full rounded-xl border bg-white dark:bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 ${
+                errors.candidate
+                  ? "border-rose-500 focus:ring-rose-500"
+                  : "border-zinc-300 dark:border-zinc-700 focus:ring-indigo-500"
+              }`}
             >
               <option value="" disabled>Select a candidate...</option>
               {candidates.map((c) => (
@@ -157,6 +199,11 @@ export function DirectMessageModal({
                 </option>
               ))}
             </select>
+            {errors.candidate && (
+              <p id="candidate-error" className="mt-1 text-xs text-rose-500">
+                {errors.candidate}
+              </p>
+            )}
           </div>
 
           {currentCandidate && (
@@ -192,20 +239,40 @@ export function DirectMessageModal({
 
           {/* Message Content */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-300 mb-1.5">
-              Message Content
+            <label
+              htmlFor="direct-message-content"
+              className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-300 mb-1.5"
+            >
+              Message Content *
             </label>
             <textarea
+              id="direct-message-content"
               rows={4}
               placeholder="Type your recruitment message here..."
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => {
+                setContent(e.target.value);
+                if (errors.content) setErrors((prev) => ({ ...prev, content: "" }));
+              }}
               disabled={isSending}
-              className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              aria-invalid={!!errors.content}
+              aria-describedby={errors.content ? "message-content-error" : undefined}
+              className={`w-full rounded-xl border bg-white dark:bg-zinc-950 p-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 resize-none ${
+                errors.content
+                  ? "border-rose-500 focus:ring-rose-500"
+                  : "border-zinc-300 dark:border-zinc-700 focus:ring-indigo-500"
+              }`}
             />
+            {errors.content && (
+              <p id="message-content-error" className="mt-1 text-xs text-rose-500">
+                {errors.content}
+              </p>
+            )}
             <div className="mt-1 flex items-center justify-between text-xs text-zinc-500">
               <span>{smsSegments} SMS segment{smsSegments > 1 ? "s" : ""}</span>
-              <span>{charCount} characters</span>
+              <span className={charCount > 1600 ? "text-rose-500 font-semibold" : ""}>
+                {charCount}/1600 characters
+              </span>
             </div>
           </div>
 

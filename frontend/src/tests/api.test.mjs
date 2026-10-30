@@ -134,5 +134,140 @@ describe("Frontend API Client & Error Handling Suite", () => {
     assert.equal(errorResult.success, false);
     assert.equal(errorResult.message, "No message found");
   });
+
+  it("validates full name rules: Unicode support, min/max length, rejection of digits/symbols", () => {
+    const validateName = (name) => {
+      const trimmed = String(name || "").trim();
+      if (!trimmed) return "Full name is required.";
+      if (trimmed.length < 2) return "Full name must be at least 2 characters.";
+      if (trimmed.length > 150) return "Full name cannot exceed 150 characters.";
+      if (!/\p{L}/u.test(trimmed)) return "Full name must contain letters and cannot consist solely of numbers or symbols.";
+      if (/\d/.test(trimmed)) return "Full name cannot contain numeric digits.";
+      if (!/^[\p{L}\s\-'.]+$/u.test(trimmed)) return "Full name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+      return null;
+    };
+
+    assert.equal(validateName("Jane Doe"), null);
+    assert.equal(validateName("Renée Müller"), null);
+    assert.equal(validateName("Mary-Jane O'Connor"), null);
+    assert.equal(validateName("Dr. A. P. J. Abdul Kalam"), null);
+    assert.equal(validateName("Aarav Sharma"), null);
+
+    assert.equal(validateName(""), "Full name is required.");
+    assert.equal(validateName("   "), "Full name is required.");
+    assert.equal(validateName("A"), "Full name must be at least 2 characters.");
+    assert.equal(validateName("12345"), "Full name must contain letters and cannot consist solely of numbers or symbols.");
+    assert.equal(validateName("---@@@"), "Full name must contain letters and cannot consist solely of numbers or symbols.");
+    assert.equal(validateName("Jane Doe 2"), "Full name cannot contain numeric digits.");
+    assert.equal(validateName("Jane <script>"), "Full name can only contain letters, spaces, hyphens, apostrophes, and periods.");
+  });
+
+  it("validates and normalizes phone numbers into E.164 standard", () => {
+    const validateAndNormalizePhone = (phone) => {
+      const trimmed = String(phone || "").trim();
+      if (!trimmed) throw new Error("Phone number is required.");
+      if (/[a-zA-Z]/.test(trimmed)) throw new Error("Phone number cannot contain alphabetic characters.");
+      if (!/^\+?[0-9\s\-().]+$/.test(trimmed)) throw new Error("Phone number contains invalid symbols.");
+
+      const digits = trimmed.replace(/\D/g, "");
+      if (digits.length < 10) throw new Error("Phone number must contain at least 10 digits.");
+      if (digits.length > 15) throw new Error("Phone number cannot exceed 15 digits.");
+
+      if (trimmed.startsWith("+")) return `+${digits}`;
+      if (digits.length === 10) return `+91${digits}`;
+      if (digits.startsWith("91") && digits.length === 12) return `+${digits}`;
+      return `+${digits}`;
+    };
+
+    // Valid formats & normalizations
+    assert.equal(validateAndNormalizePhone("9876543210"), "+919876543210");
+    assert.equal(validateAndNormalizePhone("+91 98765 43210"), "+919876543210");
+    assert.equal(validateAndNormalizePhone("+1 (555) 123-4567"), "+15551234567");
+    assert.equal(validateAndNormalizePhone("+1122334455"), "+1122334455");
+
+    // Invalid formats
+    assert.throws(() => validateAndNormalizePhone(""), /Phone number is required/);
+    assert.throws(() => validateAndNormalizePhone("12345"), /at least 10 digits/);
+    assert.throws(() => validateAndNormalizePhone("1234567890123456"), /cannot exceed 15 digits/);
+    assert.throws(() => validateAndNormalizePhone("9876543210abc"), /cannot contain alphabetic characters/);
+    assert.throws(() => validateAndNormalizePhone("9876543210#*!"), /contains invalid symbols/);
+  });
+
+  it("validates email address formats strictly rejecting malformed addresses", () => {
+    const validateEmail = (email) => {
+      const trimmed = String(email || "").trim().toLowerCase();
+      if (!trimmed) return "Email address is required.";
+      if (trimmed.length > 254) return "Email address cannot exceed 254 characters.";
+      const emailPattern = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/;
+      if (!emailPattern.test(trimmed)) return "Enter a valid email address.";
+      return null;
+    };
+
+    assert.equal(validateEmail("jane@example.com"), null);
+    assert.equal(validateEmail("user.name+tag@sub.domain.co"), null);
+
+    assert.equal(validateEmail(""), "Email address is required.");
+    assert.equal(validateEmail("abc"), "Enter a valid email address.");
+    assert.equal(validateEmail("abc@"), "Enter a valid email address.");
+    assert.equal(validateEmail("abc.com"), "Enter a valid email address.");
+    assert.equal(validateEmail("@example.com"), "Enter a valid email address.");
+  });
+
+  it("validates message content constraints and boundaries", () => {
+    const validateContent = (content) => {
+      const trimmed = String(content || "").trim();
+      if (!trimmed) return "Message cannot be empty.";
+      if (trimmed.length > 1600) return "Message exceeds the allowed length (maximum 1600 characters).";
+      return null;
+    };
+
+    assert.equal(validateContent("Hello Candidate"), null);
+    assert.equal(validateContent(""), "Message cannot be empty.");
+    assert.equal(validateContent("     "), "Message cannot be empty.");
+    assert.equal(validateContent("a".repeat(1600)), null);
+    assert.equal(validateContent("a".repeat(1601)), "Message exceeds the allowed length (maximum 1600 characters).");
+  });
+
+  it("validates bulk recipient lists, deduplication, and limits", () => {
+    const validateRecipients = (ids) => {
+      if (!Array.isArray(ids) || ids.length === 0) {
+        throw new Error("At least one candidate must be selected.");
+      }
+      if (ids.length > 500) {
+        throw new Error("Cannot send to more than 500 recipients in a single bulk campaign.");
+      }
+      const seen = new Set();
+      const deduped = [];
+      for (const id of ids) {
+        const num = Number(id);
+        if (!Number.isInteger(num) || num <= 0) {
+          throw new Error(`Invalid candidate id: ${id}`);
+        }
+        if (!seen.has(num)) {
+          seen.add(num);
+          deduped.push(num);
+        }
+      }
+      return deduped;
+    };
+
+    assert.deepEqual(validateRecipients([1, 2, 3]), [1, 2, 3]);
+    assert.deepEqual(validateRecipients([1, 2, 1, 3, 2]), [1, 2, 3]);
+    assert.throws(() => validateRecipients([]), /At least one candidate must be selected/);
+    assert.throws(() => validateRecipients(["abc"]), /Invalid candidate id/);
+  });
+
+  it("evaluates bulk campaign overall status policy", () => {
+    const evaluateCampaign = (total, successful, failed) => {
+      if (total === 0) return "empty";
+      if (successful === 0 && total > 0) return "failed";
+      if (failed === 0) return "succeeded";
+      return "partial";
+    };
+
+    assert.equal(evaluateCampaign(5, 5, 0), "succeeded");
+    assert.equal(evaluateCampaign(5, 3, 2), "partial");
+    assert.equal(evaluateCampaign(5, 0, 5), "failed");
+  });
 });
 

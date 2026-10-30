@@ -18,8 +18,19 @@ export function RetryModal({ isOpen, message, onClose, onRetrySuccess }: RetryMo
   if (!isOpen || !message) return null;
 
   const isPermanent = message.is_permanent_failure;
+  const isFailedState = message.status === "failed";
 
   const handleRetry = async () => {
+    if (!isFailedState) {
+      setErrorMsg(`Message #${message.id} is in '${message.status}' status and cannot be retried. Only failed messages can be retried.`);
+      return;
+    }
+
+    if (isPermanent && !force) {
+      setErrorMsg("This message has a permanent failure. You must check 'Force retry' to proceed.");
+      return;
+    }
+
     setIsRetrying(true);
     setErrorMsg(null);
 

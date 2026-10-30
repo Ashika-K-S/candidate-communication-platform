@@ -803,3 +803,205 @@ class MessagingAPITests(APITestCase):
         response = self.client.post(self.simulate_event_message_action_url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    # ----------------------------------------------------
+    # Additional Comprehensive Validation & Error Handling Tests
+    # ----------------------------------------------------
+
+    def test_send_individual_message_content_exceeds_max_length(self):
+        payload = {
+            "candidate_id": self.candidate1.id,
+            "content": "A" * 1601,
+        }
+        response = self.client.post(self.send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("content", response.data)
+
+    def test_send_individual_message_candidate_without_phone(self):
+        c_no_phone = Candidate.objects.create(name="No Phone User", email="nophone@example.com", phone="")
+        payload = {
+            "candidate_id": c_no_phone.id,
+            "content": "Hello without phone",
+        }
+        response = self.client.post(self.send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Message.objects.count(), 0)
+
+    @patch("requests.post")
+    def test_bulk_send_messages_success(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "sent",
+            "provider_id": "prov_msg_bulk_1",
+        }
+        mock_post.return_value = mock_response
+
+        payload = {
+            "candidate_ids": [self.candidate1.id, self.candidate2.id],
+            "content": "Company bulk update message",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["successful"], 2)
+        self.assertEqual(response.data["failed"], 0)
+        self.assertEqual(response.data["campaign_status"], "succeeded")
+
+    def test_bulk_send_empty_candidates_rejected(self):
+        payload = {
+            "candidate_ids": [],
+            "content": "Hello everyone",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("candidate_ids", response.data)
+
+    def test_bulk_send_blank_content_rejected(self):
+        payload = {
+            "candidate_ids": [self.candidate1.id],
+            "content": "   ",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("content", response.data)
+
+    def test_bulk_send_content_exceeds_max_length_rejected(self):
+        payload = {
+            "candidate_ids": [self.candidate1.id],
+            "content": "B" * 1601,
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("content", response.data)
+
+    @patch("requests.post")
+    def test_bulk_send_deduplicates_candidate_ids(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "sent",
+            "provider_id": "prov_msg_bulk_dedup",
+        }
+        mock_post.return_value = mock_response
+
+        # Pass candidate1 ID three times
+        payload = {
+            "candidate_ids": [self.candidate1.id, self.candidate1.id, self.candidate1.id],
+            "content": "Deduplication test",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should only dispatch once
+        self.assertEqual(response.data["total"], 1)
+        self.assertEqual(mock_post.call_count, 1)
+
+    @patch("requests.post")
+    def test_bulk_send_partially_invalid_recipients_and_campaign_status(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "sent",
+            "provider_id": "prov_msg_bulk_mixed",
+        }
+        mock_post.return_value = mock_response
+
+        # candidate1 exists, candidate 99999 does not exist
+        payload = {
+            "candidate_ids": [self.candidate1.id, 99999],
+            "content": "Partial recipients test",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["successful"], 1)
+        self.assertEqual(response.data["failed"], 1)
+        self.assertEqual(response.data["campaign_status"], "partial")
+
+    def test_bulk_send_all_failed_campaign_status(self):
+        # All invalid candidate IDs
+        payload = {
+            "candidate_ids": [88888, 99999],
+            "content": "All fail test",
+        }
+        response = self.client.post(self.bulk_send_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["successful"], 0)
+        self.assertEqual(response.data["failed"], 2)
+        self.assertEqual(response.data["campaign_status"], "failed")
+
+    def test_retry_non_numeric_id_returns_400(self):
+        retry_url = reverse("message-retry-message", kwargs={"pk": "invalid_pk"})
+        response = self.client.post(retry_url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retry_negative_id_returns_400(self):
+        retry_url = reverse("message-retry-message", kwargs={"pk": -5})
+        response = self.client.post(retry_url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retry_nonexistent_message_returns_404(self):
+        retry_url = reverse("message-retry-message", kwargs={"pk": 999999})
+        response = self.client.post(retry_url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retry_message_in_sent_state_rejected(self):
+        sent_msg = Message.objects.create(
+            candidate=self.candidate1,
+            content="Already sent",
+            status=MessageStatus.SENT,
+            provider_message_id="prov_sent_1",
+        )
+        retry_url = reverse("message-retry-message", kwargs={"pk": sent_msg.pk})
+        response = self.client.post(retry_url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "ineligible_status")
+
+    def test_webhook_missing_event_id_rejected(self):
+        payload = {
+            "provider_message_id": "prov_msg_1",
+            "status": "delivered",
+        }
+        response = self.client.post(self.events_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event_id", response.data)
+
+    def test_webhook_missing_both_identifiers_rejected(self):
+        payload = {
+            "event_id": "evt_test_no_id",
+            "status": "delivered",
+        }
+        response = self.client.post(self.events_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_webhook_invalid_status_rejected(self):
+        payload = {
+            "event_id": "evt_test_invalid_status",
+            "provider_message_id": "prov_msg_1",
+            "status": "not_a_valid_status",
+        }
+        response = self.client.post(self.events_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("status", response.data)
+
+    def test_webhook_pending_status_rejected_for_event(self):
+        payload = {
+            "event_id": "evt_test_pending_status",
+            "provider_message_id": "prov_msg_1",
+            "status": "pending",
+        }
+        response = self.client.post(self.events_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("status", response.data)
+
+    def test_candidate_messages_invalid_status_query(self):
+        url = reverse("candidate-messages", kwargs={"candidate_id": self.candidate1.id})
+        response = self.client.get(url, {"status": "invalid_status"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_candidate_messages_post_empty_content_rejected(self):
+        url = reverse("candidate-messages", kwargs={"candidate_id": self.candidate1.id})
+        response = self.client.post(url, {"content": "   "}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+

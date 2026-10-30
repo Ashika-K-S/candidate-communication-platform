@@ -48,9 +48,28 @@ def send_to_dummy_provider(recipient: str, content: str) -> dict:
     timeout = getattr(settings, "PROVIDER_TIMEOUT", 10.0)
     url = f"{base_url}/api/send/"
 
+    clean_recipient = str(recipient or "").strip()
+    clean_content = str(content or "").strip()
+
+    if not clean_recipient:
+        return {
+            "success": False,
+            "status": MessageStatus.FAILED,
+            "failure_reason": "Recipient phone number is required and cannot be empty.",
+            "is_permanent": True,
+        }
+
+    if not clean_content:
+        return {
+            "success": False,
+            "status": MessageStatus.FAILED,
+            "failure_reason": "Message content cannot be blank.",
+            "is_permanent": True,
+        }
+
     payload = {
-        "recipient": recipient,
-        "content": content,
+        "recipient": clean_recipient,
+        "content": clean_content,
     }
 
     try:
@@ -67,10 +86,19 @@ def send_to_dummy_provider(recipient: str, content: str) -> dict:
             data = {"message": response.text}
 
         if response.status_code == 200:
+            provider_id = data.get("provider_id")
+            if not provider_id:
+                return {
+                    "success": False,
+                    "status": MessageStatus.FAILED,
+                    "failure_reason": "Provider response was missing a valid provider_id.",
+                    "data": data,
+                    "is_permanent": False,
+                }
             return {
                 "success": True,
                 "status": MessageStatus.SENT,
-                "provider_id": data.get("provider_id"),
+                "provider_id": provider_id,
                 "data": data,
                 "is_permanent": False,
             }
@@ -294,8 +322,21 @@ def retry_failed_message(message_id: int, force: bool = False) -> tuple[bool, di
         prev_status = message.status
         prev_provider_id = message.provider_message_id
 
+        # Validate recipient and content
+        recipient = message.candidate.phone if message.candidate else None
+        if not recipient or not str(recipient).strip():
+            return False, {
+                "error": "invalid_recipient",
+                "message": "Candidate associated with this message does not have a valid phone number.",
+            }, 400
+
+        if not message.content or not str(message.content).strip():
+            return False, {
+                "error": "invalid_content",
+                "message": "Message content is empty and cannot be retried.",
+            }, 400
+
         # Dispatch retry to provider
-        recipient = message.candidate.phone or message.candidate.email
         result = send_to_dummy_provider(recipient=recipient, content=message.content)
 
         if result.get("success"):
